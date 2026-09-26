@@ -1,0 +1,509 @@
+<!doctype html>
+<!--
+  NavMe: Museum inquiry page
+  Lives at:  https://inquiry.navme.space/  (this file is index.html at the root)
+  Ship NavMe_logo.png in the same folder as this page (used in the header).
+
+  ── FOR THE DEV TEAM ─────────────────────────────────────────────────────────
+  Everything is self-contained: no build step, no dependencies except the
+  Outfit webfont. Colours and radii match the tokens already on the site
+  (--nm-primary #6366f1, --nm-bg #050816, --nm-text #ffffff, pill radius).
+
+  Saving: every visit is saved as it is filled in (about a second after each
+  change), finished or not, so abandoned forms are kept as "draft" records.
+  Each record has its own id, so several iPads can take entries in parallel.
+  Records go to ENDPOINT (see CONNECT STORAGE HERE in the script, and run
+  enquiry-supabase.sql for Supabase). Each device also keeps its own copy in
+  localStorage and retries anything unsent, so a Wi-Fi drop loses nothing.
+
+  Record posted as JSON (the same id is re-sent as it changes, so upsert by id):
+  {
+    id: uuid, status: "draft"|"complete", device: string,
+    startedAt, updatedAt: ISO8601, submittedAt: ISO8601|null,
+    source: "inquiry.navme.space", event: string|null,
+    contact:  { museum, name, role, email },
+    consent:  { findings: bool, contact: bool },
+    answers:  { site, orgtype, visitors, pain[], today[], value, timing{answer,detail}, next, more },
+    stand:    { spokeWith, warmth, notes }   // only present when ?staff=1
+  }
+
+  At a conference stand open  inquiry.navme.space/?staff=1&device=ipad-1  (ipad-2 on the
+  second iPad). Staff mode adds the stand notes, "Save & next visitor",
+  "New visitor" (keeps the unfinished entry as a draft) and a CSV download of
+  everything saved on that device. Visitors never see it.
+  ─────────────────────────────────────────────────────────────────────────────
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Inquiry | NavMe for museums</title>
+<meta name="description" content="Tell us about your museum. Nine questions, about two minutes.">
+<meta name="theme-color" content="#050816">
+<link rel="icon" type="image/png" href="NavMe_logo.png">
+<link rel="apple-touch-icon" href="NavMe_logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;900&display=swap">
+<style>
+:root{
+  --nm-bg:#050816; --nm-bg-deep:#03050e; --nm-secondary:#875ce9; --nm-surface:#0b1120;
+  --nm-text:#ffffff; --nm-muted:#7c8493; --nm-primary:#6366f1; --nm-accent:#875ce9;
+  --nm-highlight:#875ce9; --nm-border:#23263a; --nm-border-strong:#2f3350;
+  --nm-glass:rgba(255,255,255,.04); --nm-err:#e5857a;
+  --shadow:0 8px 24px rgba(0,0,0,.45);
+  --font:"Outfit",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--nm-bg);color:var(--nm-text);font:16px/1.55 var(--font);
+  padding:0 0 96px;
+  background-image:radial-gradient(60rem 30rem at 12% -10%,rgba(99,102,241,.13),transparent 60%),
+                   radial-gradient(48rem 26rem at 95% 8%,rgba(135,92,233,.07),transparent 60%);
+  background-attachment:fixed;
+}
+a{color:inherit}
+.wrap{max-width:66rem;margin:0 auto;padding:0 20px}
+
+/* ── header, matching the site's pill buttons ───────────────────────────── */
+.top{position:sticky;top:0;z-index:20;backdrop-filter:blur(10px);background:rgba(5,8,22,.82);border-bottom:1px solid var(--nm-border)}
+.top .wrap{display:flex;align-items:center;gap:12px;padding-block:12px}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:700;letter-spacing:-.01em}
+.mark{width:40px;height:40px;flex:none;display:block;object-fit:contain}
+.spacer{flex:1}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:9999px;
+  padding:10px 16px;font:600 15px var(--font);text-decoration:none;cursor:pointer;border:1px solid transparent;
+  transition:background-color .15s,border-color .15s,color .15s;white-space:nowrap}
+.btn-primary{background:rgba(99,102,241,.9);border-color:rgba(99,102,241,.5);color:#fff}
+.btn-primary:hover{background:rgba(99,102,241,1)}
+.btn-ghost{background:rgba(11,17,32,.88);border-color:var(--nm-border-strong);color:var(--nm-text)}
+.btn-ghost:hover{border-color:rgba(99,102,241,.55)}
+.btn[aria-current="page"]{border-color:var(--nm-primary);color:var(--nm-primary)}
+.btn:focus-visible{outline:2px solid var(--nm-highlight);outline-offset:2px}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+@media (max-width:640px){.top .wrap{gap:8px;padding-block:10px}.btn{padding:9px 13px;font-size:14px}.logo span{display:none}}
+
+/* ── hero ───────────────────────────────────────────────────────────────── */
+.hero{padding:44px 0 8px}
+.eyebrow{font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--nm-primary);margin:0 0 12px}
+h1{font-size:clamp(30px,5.4vw,52px);line-height:1.04;font-weight:900;letter-spacing:-.02em;margin:0 0 14px;text-wrap:balance}
+h1 em{font-style:normal;color:var(--nm-primary)}
+.lede{color:var(--nm-muted);font-size:clamp(16px,2vw,19px);max-width:56ch;margin:0 0 6px}
+.meta{display:flex;gap:10px;flex-wrap:wrap;margin:20px 0 0}
+.tag{font-size:13px;font-weight:500;color:var(--nm-muted);border:1px solid var(--nm-border);
+  background:var(--nm-glass);border-radius:9999px;padding:6px 14px}
+
+/* ── progress ───────────────────────────────────────────────────────────── */
+.progress{position:sticky;top:59px;z-index:15;background:rgba(5,8,22,.9);backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--nm-border);margin-top:28px}
+.progress .wrap{display:flex;align-items:center;gap:14px;padding-block:10px}
+.prog-txt{font-size:13px;font-weight:600;color:var(--nm-muted);white-space:nowrap}
+.track{flex:1;height:6px;border-radius:9999px;background:rgba(255,255,255,.08);overflow:hidden}
+.track i{display:block;height:100%;width:0;border-radius:9999px;
+  background:linear-gradient(90deg,var(--nm-accent),var(--nm-primary));transition:width .35s ease}
+
+/* ── cards & questions ──────────────────────────────────────────────────── */
+form{margin-top:26px}
+.card{background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.02));
+  border:1px solid var(--nm-border);border-radius:24px;padding:22px 22px 20px;margin-bottom:16px;box-shadow:var(--shadow)}
+.card h2{margin:0 0 4px;font-size:20px;font-weight:700;letter-spacing:-.01em;line-height:1.25;display:flex;gap:12px;align-items:baseline}
+.num{flex:none;width:26px;height:26px;border-radius:9999px;display:inline-grid;place-items:center;
+  background:rgba(99,102,241,.16);border:1px solid rgba(99,102,241,.45);color:var(--nm-primary);
+  font-size:12px;font-weight:700;transform:translateY(-1px)}
+.hint{margin:0 0 14px 38px;font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--nm-muted)}
+.hint.over{color:var(--nm-err)}
+.chips{display:flex;flex-wrap:wrap;gap:10px;margin-left:38px}
+.chip{position:relative}
+.chip input{position:absolute;opacity:0;width:0;height:0}
+.chip label{display:block;padding:11px 16px;border-radius:9999px;border:1px solid var(--nm-border-strong);
+  background:rgba(11,17,32,.7);cursor:pointer;font-size:15px;line-height:1.3;transition:all .14s}
+.chip label:hover{border-color:rgba(99,102,241,.6);background:rgba(99,102,241,.08)}
+.chip input:checked+label{background:rgba(99,102,241,.9);border-color:rgba(99,102,241,.5);color:#fff;font-weight:600}
+.chip input:focus-visible+label{outline:2px solid var(--nm-highlight);outline-offset:2px}
+@media (max-width:640px){.chips,.hint{margin-left:0}.card{padding:18px 16px;border-radius:20px}}
+
+/* ── fields ─────────────────────────────────────────────────────────────── */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.f label,.flab{display:block;font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--nm-muted);margin-bottom:6px}
+input[type=text],input[type=email],textarea{width:100%;font:16px var(--font);color:var(--nm-text);
+  background:rgba(3,5,14,.75);border:1px solid var(--nm-border-strong);border-radius:14px;padding:12px 14px}
+textarea{min-height:92px;resize:vertical;border-radius:18px}
+input::placeholder,textarea::placeholder{color:rgba(124,132,147,.65)}
+input:focus,textarea:focus{outline:none;border-color:var(--nm-primary);box-shadow:0 0 0 3px rgba(99,102,241,.18)}
+.detail{margin:14px 0 0 38px;max-width:32rem}
+@media (max-width:640px){.detail{margin-left:0}}
+.check{display:flex;gap:12px;align-items:flex-start;padding:10px 0;cursor:pointer}
+.check input{appearance:none;width:22px;height:22px;flex:none;margin:1px 0 0;border-radius:7px;
+  border:1px solid var(--nm-border-strong);background:rgba(3,5,14,.75);cursor:pointer;display:grid;place-items:center}
+.check input:checked{background:rgba(99,102,241,.9);border-color:rgba(99,102,241,.5)}
+.check input:checked::after{content:"";width:5px;height:10px;border:solid #fff;border-width:0 2px 2px 0;transform:translateY(-1px) rotate(45deg)}
+.check input:focus-visible{outline:2px solid var(--nm-highlight);outline-offset:2px}
+.check span{font-size:15px;color:var(--nm-text)}
+.check small{display:block;color:var(--nm-muted);font-size:13px;margin-top:2px}
+
+/* ── staff block (?staff=1) ─────────────────────────────────────────────── */
+.staff{border-color:rgba(135,92,233,.35)}
+.staff h2::after{content:"staff only";margin-left:4px;font-size:10px;font-weight:700;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--nm-highlight);border:1px solid rgba(135,92,233,.45);border-radius:6px;padding:2px 7px}
+
+/* ── submit / status ────────────────────────────────────────────────────── */
+.submit{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:22px}
+.submit .btn-primary{padding:14px 26px;font-size:16px}
+.status{margin-top:14px;font-size:15px;font-weight:500;min-height:1.4em;color:var(--nm-muted)}
+.status.bad{color:var(--nm-err)}
+.status.ok{color:var(--nm-highlight)}
+.done{display:none;text-align:center;padding:56px 24px}
+.done.show{display:block}
+.done .tick{width:66px;height:66px;margin:0 auto 20px;border-radius:9999px;display:grid;place-items:center;
+  background:rgba(99,102,241,.16);border:1px solid rgba(99,102,241,.45);font-size:30px;color:var(--nm-primary)}
+.done h2{font-size:30px;font-weight:900;letter-spacing:-.02em;margin:0 0 10px}
+.done p{color:var(--nm-muted);max-width:46ch;margin:0 auto 22px}
+footer{color:var(--nm-muted);font-size:13px;text-align:center;padding:36px 20px 0}
+.hidden{display:none!important}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+
+<header class="top"><div class="wrap">
+  <a class="logo" href="https://museum.navme.space/"><img class="mark" src="NavMe_logo.png" alt="" width="40" height="40"><span>NavMe</span></a>
+  <div class="spacer"></div>
+  <a class="btn btn-primary" href="https://museum.navme.space/#connect">Book a Demo</a>
+  <a class="btn btn-ghost" href="/" aria-current="page">Inquiry</a>
+</div></header>
+
+<div class="progress"><div class="wrap">
+  <span class="prog-txt" id="progTxt">0 of 9</span>
+  <span class="track"><i id="progBar"></i></span>
+</div></div>
+
+<main class="wrap">
+  <section class="hero" id="hero">
+    <p class="eyebrow">Museum inquiry</p>
+    <h1>Tell us about <em>your museum</em></h1>
+    <p class="lede">Nine quick questions, about two minutes. We're asking every museum the same set. Answer them and we'll send you the anonymised results, plus a short written readout for your own museum if you'd like one.</p>
+    <div class="meta">
+      <span class="tag">~2 minutes</span>
+      <span class="tag">No obligation</span>
+      <span class="tag">We'll share the findings</span>
+    </div>
+  </section>
+
+  <form id="form" novalidate>
+    <div class="card">
+      <h2><span class="num">·</span>Who we should reply to</h2>
+      <p class="hint">Museum and contact</p>
+      <div class="chips" style="display:block">
+        <div class="grid">
+          <div class="f"><label for="f_museum">Museum / organization</label><input type="text" id="f_museum" autocomplete="organization" placeholder="e.g. Harbour Maritime Museum"></div>
+          <div class="f"><label for="f_name">Your name</label><input type="text" id="f_name" autocomplete="name"></div>
+          <div class="f"><label for="f_role">Role</label><input type="text" id="f_role" autocomplete="organization-title" placeholder="e.g. Head of Visitor Experience"></div>
+          <div class="f"><label for="f_email">Email</label><input type="email" id="f_email" autocomplete="email" inputmode="email"></div>
+        </div>
+        <div style="margin-top:14px">
+          <label class="check"><input type="checkbox" id="c_report"><span>Send me the anonymised findings<small>What museums told us, collected across the sector.</small></span></label>
+          <label class="check"><input type="checkbox" id="c_contact"><span>I'd like a short readout for our museum<small>We'll get in touch about your museum specifically.</small></span></label>
+        </div>
+      </div>
+    </div>
+
+    <div id="qs"></div>
+
+    <div class="card staff hidden" id="staffCard">
+      <h2><span class="num">★</span>Stand notes</h2>
+      <p class="hint">Not shown to the visitor</p>
+      <div class="grid" style="margin-bottom:14px">
+        <div class="f"><label for="f_by">Spoke with (our team)</label><input type="text" id="f_by"></div>
+        <div class="f"><span class="flab">How warm did it feel?</span>
+          <div class="chips" style="margin-left:0">
+            <div class="chip"><input type="radio" name="warmth" id="w0" value="Hot: wants a next step"><label for="w0">Hot</label></div>
+            <div class="chip"><input type="radio" name="warmth" id="w1" value="Warm: interested, no timing"><label for="w1">Warm</label></div>
+            <div class="chip"><input type="radio" name="warmth" id="w2" value="Cold: browsing"><label for="w2">Cold</label></div>
+          </div>
+        </div>
+      </div>
+      <div class="f"><label for="f_notes">Anything memorable</label><textarea id="f_notes" placeholder="What they said, who else to involve, the detail that makes the follow-up land…"></textarea></div>
+    </div>
+
+    <div class="submit">
+      <button type="submit" class="btn btn-primary" id="sendBtn">Send inquiry</button>
+      <button type="button" class="btn btn-ghost hidden" id="clearBtn">New visitor</button>
+      <button type="button" class="btn btn-ghost hidden" id="exportBtn">Download this device's entries</button>
+      <span class="prog-txt" id="queued"></span>
+    </div>
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+  </form>
+
+  <section class="done" id="done">
+    <div class="tick">✓</div>
+    <h2>Thank you</h2>
+    <p id="doneMsg">We've got your answers. We'll be in touch, and we'll send the sector findings once they're in.</p>
+    <a class="btn btn-primary" href="https://museum.navme.space/#connect">Book a demo</a>
+    <a class="btn btn-ghost" href="https://museum.navme.space/">Back to NavMe</a>
+  </section>
+
+  <footer>NavMe · spatial AI for museums: navigation, discovery and visitor insight.</footer>
+</main>
+
+<script>
+/* ─────────── CONNECT STORAGE HERE ───────────
+   Every visit is saved as it is filled in, finished or not. Each record has
+   its own id, so any number of iPads can save in parallel without clashing.
+   Records are sent to ENDPOINT, and each iPad also keeps its own copy (staff
+   can download it as CSV), so nothing is lost if the Wi-Fi drops.
+
+   Supabase: run enquiry-supabase.sql once, then set
+     const ENDPOINT = "https://<ref>.supabase.co/rest/v1/rpc/inquiry_save_enquiry";
+     const HEADERS  = {"Content-Type":"application/json", apikey:"<publishable key>"};
+   (With a legacy anon key, also add Authorization:"Bearer <anon key>".)
+   Any other endpoint receives the record itself as JSON and should upsert
+   by record.id. Leave "" while developing: records stay on the device.
+
+   Name each iPad once by opening  inquiry.navme.space/?staff=1&device=ipad-1  (then
+   ipad-2 on the other). The name is remembered on that iPad.
+*/
+const ENDPOINT = "https://znfwcohrpkiccibqcfpn.supabase.co/rest/v1/rpc/inquiry_save_enquiry";
+const HEADERS  = {"Content-Type":"application/json", apikey:"sb_publishable_gigKfr2wNhBmYL3kLN6OoQ_tfoB4CLv"};
+/* ───────────────────────────────────────────── */
+
+const QS=[
+ {id:"site",t:"What kind of museum is it?",type:"single",detail:"Please tell us what kind",detailOn:"Other",
+  o:["Single museum","Several buildings / campus","Historic house or heritage museum","Outdoor museum or gardens","Gallery","Science centre, zoo or aquarium","Several museums in one organization","Other"]},
+ {id:"orgtype",t:"How is the organization run?",type:"single",
+  o:["Non-profit or charitable trust","Publicly funded (government, council, national)","University or academic","Private or commercial","Mixed funding","Not sure"]},
+ {id:"visitors",t:"Roughly how many visitors a year?",type:"single",
+  o:["Under 50k","50–250k","250k–1M","Over 1M","Not sure"]},
+ {id:"pain",t:"What do visitors struggle with most?",type:"multi",
+  o:["Missing galleries or key objects","Finding cafe, toilets, cloakroom","Knowing where to start","Step-free and accessible routes","Low take-up of our audio guide or app","Temporary exhibitions changing","School and group logistics","Languages","Nothing much, honestly"]},
+ {id:"today",t:"How do you help people find their way today?",type:"multi",
+  o:["Printed map","Signage","Front of house and volunteers","Audio guide handsets","Our own app","A third-party guide platform","Not much"]},
+ {id:"value",t:"Which would make the biggest difference?",type:"single",
+  o:["Wayfinding","Self-guided trails","Object information on demand","Accessible routes","Visitor data for reporting","Not sure yet"]},
+ {id:"timing",t:"When would you want something live?",type:"single",detail:"Opening or milestone date",
+  o:["Within 6 months","6–12 months","Over a year","Tied to an opening","Just exploring"]},
+ {id:"next",t:"What would be the best next step?",type:"single",
+  o:["Send me the findings","A short online demo","A call about our museum","Nothing for now"]},
+ {id:"more",t:"Tell us anything about your museum. How can we help?",type:"text",
+  placeholder:"Anything you'd like us to know: plans, challenges, ideas…"}
+];
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const STAFF=new URLSearchParams(location.search).has("staff");
+
+$("qs").innerHTML=QS.map((q,i)=>`<div class="card" data-q="${q.id}">
+  <h2><span class="num">${i+1}</span>${esc(q.t)}</h2>
+  <p class="hint" id="hint_${q.id}">${q.type==="text"?"Optional":q.type==="single"?"Choose one":q.max?`Up to ${q.max}`:"Choose all that apply"}</p>
+  ${q.type==="text"?`<div class="chips" style="display:block"><label class="sr-only" for="${q.id}_text">${esc(q.t)}</label><textarea id="${q.id}_text" placeholder="${esc(q.placeholder||"")}"></textarea></div>`:
+  `<div class="chips">${q.o.map((o,oi)=>`<div class="chip"><input type="${q.type==="single"?"radio":"checkbox"}" name="${q.id}" id="${q.id}_${oi}" value="${esc(o)}"><label for="${q.id}_${oi}">${esc(o)}</label></div>`).join("")}</div>`}
+  ${q.detail?`<div class="detail f${q.detailOn?" hidden":""}" id="${q.id}_detailbox"><label for="${q.id}_detail">${esc(q.detail)}</label><input type="text" id="${q.id}_detail"></div>`:""}
+</div>`).join("");
+
+if(STAFF){
+  $("staffCard").classList.remove("hidden");
+  $("clearBtn").classList.remove("hidden");
+  $("sendBtn").textContent="Save & next visitor";
+}
+
+/* progress + choice limits */
+function refresh(){
+  let done=0;
+  QS.forEach(q=>{
+    if(q.type==="text"){if($(q.id+"_text").value.trim())done++;return}
+    const sel=[...document.querySelectorAll(`input[name="${q.id}"]:checked`)];
+    if(sel.length)done++;
+    /* "Other" opens its own text box */
+    if(q.detailOn)$(q.id+"_detailbox").classList.toggle("hidden",!sel.some(i=>i.value===q.detailOn));
+    if(q.max){const h=$("hint_"+q.id);
+      if(!h.classList.contains("over"))h.textContent=sel.length?`${sel.length} of ${q.max} chosen`:`Up to ${q.max}`;}
+  });
+  $("progTxt").textContent=`${done} of ${QS.length}`;
+  $("progBar").style.width=Math.round(done/QS.length*100)+"%";
+}
+$("form").addEventListener("change",e=>{
+  const q=QS.find(q=>q.id===e.target.name);
+  if(q&&q.type==="multi"&&q.max&&e.target.checked){
+    const on=[...document.querySelectorAll(`input[name="${q.id}"]:checked`)];
+    if(on.length>q.max){
+      e.target.checked=false;
+      const h=$("hint_"+q.id);h.classList.add("over");h.textContent=`Up to ${q.max}. Clear one first`;
+      setTimeout(()=>{h.classList.remove("over");refresh()},1700);
+    }
+  }
+  refresh();
+  if(q&&q.detailOn&&e.target.checked&&e.target.value===q.detailOn)$(q.id+"_detail").focus();
+});
+$("form").addEventListener("input",e=>{if(e.target.tagName==="TEXTAREA")refresh()});
+refresh();
+
+/* storage: every visit is a record with an id, saved as it is filled in */
+const P=new URLSearchParams(location.search);
+const LS={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},
+          set(k,v){try{v==null?localStorage.removeItem(k):localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+const K={dev:"navme-enquiry-device",by:"navme-enquiry-staff",cur:"navme-enquiry-current",
+         out:"navme-enquiry-outbox",all:"navme-enquiry-archive",old:"navme-enquiry-queue"};
+const uid=()=>crypto.randomUUID?crypto.randomUUID():"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,c=>{
+  const r=Math.random()*16|0;return(c==="x"?r:(r&3|8)).toString(16)});
+const DEVICE=(()=>{const d=P.get("device")||LS.get(K.dev,null)||"device-"+uid().slice(0,4);LS.set(K.dev,d);return d})();
+let cur={id:uid(),startedAt:null};
+
+/* records queued by the previous version of this page */
+(()=>{const old=LS.get(K.old,[]);if(!old.length)return;
+  const out=LS.get(K.out,{}),all=LS.get(K.all,{});
+  old.forEach(p=>{const r={...p,id:uid(),status:"complete",device:DEVICE,startedAt:p.submittedAt,updatedAt:p.submittedAt};out[r.id]=all[r.id]=r});
+  LS.set(K.out,out);LS.set(K.all,all);LS.set(K.old,null)})();
+
+/* collect */
+function collect(status){
+  const v=id=>($(id)?$(id).value.trim():"");
+  const answers={};
+  QS.forEach(q=>{
+    if(q.type==="text"){answers[q.id]=v(q.id+"_text")||null;return}
+    const sel=[...document.querySelectorAll(`input[name="${q.id}"]:checked`)].map(i=>i.value);
+    const val=q.type==="single"?(sel[0]||null):(sel.length?sel:null);
+    const d=q.detail&&(!q.detailOn||sel.includes(q.detailOn))?v(q.id+"_detail"):"";
+    answers[q.id]=d?{answer:val,detail:d}:val;
+  });
+  const now=new Date().toISOString();
+  const payload={id:cur.id,status,device:DEVICE,startedAt:cur.startedAt||now,updatedAt:now,
+    submittedAt:status==="complete"?now:null,source:"inquiry.navme.space",event:P.get("event"),
+    contact:{museum:v("f_museum"),name:v("f_name"),role:v("f_role"),email:v("f_email")},
+    consent:{findings:$("c_report").checked,contact:$("c_contact").checked},
+    answers};
+  if(STAFF)payload.stand={spokeWith:v("f_by"),
+    warmth:(document.querySelector('input[name=warmth]:checked')||{}).value||null,notes:v("f_notes")};
+  return payload;
+}
+const answeredCount=p=>Object.values(p.answers).filter(a=>a&&(a.answer!==undefined?a.answer:a)).length;
+/* "Spoke with" is left out on purpose: it carries over between visitors */
+const hasContent=p=>answeredCount(p)>0||Object.values(p.answers).some(a=>a&&a.detail)
+  ||Object.values(p.contact).some(Boolean)||p.consent.findings||p.consent.contact
+  ||!!(p.stand&&(p.stand.warmth||p.stand.notes));
+
+function restore(r){
+  const set=(id,val)=>{if($(id)&&val)$(id).value=val};
+  const c=r.contact||{};set("f_museum",c.museum);set("f_name",c.name);set("f_role",c.role);set("f_email",c.email);
+  $("c_report").checked=!!(r.consent&&r.consent.findings);$("c_contact").checked=!!(r.consent&&r.consent.contact);
+  QS.forEach(q=>{
+    let a=r.answers&&r.answers[q.id];
+    if(q.type==="text"){set(q.id+"_text",a);return}
+    if(a&&!Array.isArray(a)&&typeof a==="object"){set(q.id+"_detail",a.detail);a=a.answer}
+    [].concat(a||[]).forEach(val=>{const i=[...document.getElementsByName(q.id)].find(i=>i.value===val);if(i)i.checked=true});
+  });
+  if(r.stand){set("f_notes",r.stand.notes);
+    const w=[...document.getElementsByName("warmth")].find(i=>i.value===r.stand.warmth);if(w)w.checked=true}
+}
+
+/* save locally first, then send */
+let timer=null,closed=false;
+function save(status){
+  clearTimeout(timer);
+  if(closed)return null;
+  const r=collect(status||"draft");
+  if(r.status==="draft"&&!hasContent(r))return null;
+  cur.startedAt=r.startedAt;
+  const out=LS.get(K.out,{}),all=LS.get(K.all,{});
+  out[r.id]=all[r.id]=r;LS.set(K.out,out);LS.set(K.all,all);
+  LS.set(K.cur,r.status==="draft"?r:null);
+  flush();return r;
+}
+const saveSoon=()=>{clearTimeout(timer);timer=setTimeout(save,1200)};
+
+async function post(r){
+  const res=await fetch(ENDPOINT,{method:"POST",headers:HEADERS,keepalive:true,
+    body:JSON.stringify(ENDPOINT.includes("/rpc/")?{rec:r}:r)});
+  if(!res.ok)throw new Error("HTTP "+res.status);
+}
+let flushing=null,again=false;
+function flush(){
+  if(!ENDPOINT){paint();return Promise.resolve()}
+  if(flushing){again=true;return flushing}
+  flushing=(async()=>{
+    do{
+      again=false;
+      for(const r of Object.values(LS.get(K.out,{}))){
+        try{await post(r)}catch(e){again=false;break}
+        /* only clear it if it wasn't edited again while sending */
+        const out=LS.get(K.out,{});
+        if(out[r.id]&&out[r.id].updatedAt===r.updatedAt){delete out[r.id];LS.set(K.out,out)}
+      }
+    }while(again);
+  })().finally(()=>{flushing=null;paint()});
+  return flushing;
+}
+function paint(){
+  const n=Object.keys(LS.get(K.out,{})).length;
+  const sync=!ENDPOINT?"saved on this device only":n?`${n} waiting to send`:"all saved";
+  $("queued").textContent=STAFF?`${DEVICE} · ${sync}`:(n&&ENDPOINT?sync:"");
+}
+addEventListener("online",flush);
+setInterval(()=>{if(Object.keys(LS.get(K.out,{})).length)flush()},20000);
+$("form").addEventListener("change",saveSoon);
+$("form").addEventListener("input",saveSoon);
+addEventListener("pagehide",()=>save());
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")save()});
+
+/* pick up an unfinished visit after a reload or crash */
+{const staffName=LS.get(K.by,"");if(staffName)$("f_by").value=staffName;
+ $("f_by").addEventListener("change",()=>LS.set(K.by,$("f_by").value.trim()));
+ const r=LS.get(K.cur,null);
+ if(r&&r.status==="draft"){cur={id:r.id,startedAt:r.startedAt};restore(r);refresh()}}
+
+function reset(){
+  cur={id:uid(),startedAt:null};LS.set(K.cur,null);
+  document.querySelectorAll('#form input[type=radio],#form input[type=checkbox]').forEach(i=>i.checked=false);
+  document.querySelectorAll('#form input[type=text],#form input[type=email],#form textarea').forEach(i=>{if(i.id!=="f_by")i.value=""});
+  refresh();window.scrollTo({top:0,behavior:"smooth"});
+}
+$("clearBtn").onclick=()=>{
+  const r=save();reset();
+  say(r?"Saved as unfinished. Ready for the next visitor.":"Ready for the next visitor.","ok");
+};
+
+/* staff: download everything saved on this iPad */
+$("exportBtn").onclick=()=>{
+  const rows=Object.values(LS.get(K.all,{})).sort((a,b)=>a.startedAt<b.startedAt?-1:1);
+  const flat=a=>a==null?"":Array.isArray(a)?a.join("; "):typeof a==="object"?[flat(a.answer),a.detail].filter(Boolean).join(" | "):a;
+  const head=["id","status","device","event","started","updated","submitted","museum","name","role","email",
+    "wants findings","wants readout",...QS.map(q=>q.id),"spoke with","warmth","notes"];
+  const lines=rows.map(r=>{const s=r.stand||{};return[r.id,r.status,r.device,r.event,r.startedAt,r.updatedAt,r.submittedAt,
+    r.contact.museum,r.contact.name,r.contact.role,r.contact.email,r.consent.findings,r.consent.contact,
+    ...QS.map(q=>flat(r.answers[q.id])),s.spokeWith,s.warmth,s.notes]});
+  /* quote every cell; a leading ' stops Excel reading typed text as a formula */
+  const cell=v=>{let t=v==null?"":String(v);if(/^[=+\-@]/.test(t))t="'"+t;return`"${t.replace(/"/g,'""')}"`};
+  const text=[head,...lines].map(l=>l.map(cell).join(",")).join("\r\n");
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([String.fromCharCode(0xFEFF)+text],{type:"text/csv"}));
+  a.download=`navme-inquiries-${DEVICE}-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.append(a);a.click();a.remove();
+  say(`Downloaded ${rows.length} ${rows.length===1?"entry":"entries"} from this device.`,"ok");
+};
+
+function say(m,k){const s=$("status");s.textContent=m;s.className="status "+(k||"")}
+$("form").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const p=collect("complete"),c=p.contact;
+  if(!answeredCount(p)&&!c.email){say("Answer a question or two first, then send.","bad");return}
+  if(!/^\S+@\S+\.\S+$/.test(c.email)){say("Please add an email so we can reply.","bad");$("f_email").focus();return}
+  $("sendBtn").disabled=true;say("Sending…");
+  const r=save("complete");
+  await flush();
+  const sent=!ENDPOINT||!LS.get(K.out,{})[r.id];
+  $("sendBtn").disabled=false;
+  if(STAFF){reset();
+    say(sent?"Saved. Ready for the next visitor.":"Saved on this device. It will send when the connection is back.","ok");return}
+  closed=true;LS.set(K.cur,null);
+  $("hero").classList.add("hidden");$("form").classList.add("hidden");
+  document.querySelector(".progress").classList.add("hidden");
+  $("doneMsg").textContent=(p.consent.contact
+    ? `Thank you, ${c.name?c.name.split(" ")[0]:"and speak soon"}. We'll be in touch at ${c.email} with a short readout for your museum.`
+    : "Thank you. We've got your answers, and we'll send the sector findings once they're in.")
+    +(sent?"":" You're offline right now, so they'll send from this device when the connection is back.");
+  $("done").classList.add("show");window.scrollTo({top:0,behavior:"smooth"});
+});
+if(STAFF)$("exportBtn").classList.remove("hidden");
+paint();flush();
+</script>
+</body>
+</html>

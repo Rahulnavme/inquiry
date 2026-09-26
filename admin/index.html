@@ -1,0 +1,504 @@
+<!doctype html>
+<!--
+  NavMe: Museum inquiry admin
+  Lives at:  https://inquiry.navme.space/admin  (admin/index.html; the logo is one folder up)
+
+  Shows every entry saved by the inquiry form (Supabase table
+  inquiry_museum_enquiries). The page holds only the public key; entries are
+  returned only by inquiry_admin_list() when the admin password is right.
+  Password: stored hashed in inquiry_admin_config; change it from this page.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Inquiry Admin | NavMe</title>
+<meta name="theme-color" content="#050816">
+<link rel="icon" type="image/png" href="../NavMe_logo.png">
+<link rel="apple-touch-icon" href="../NavMe_logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;900&display=swap">
+<style>
+:root{
+  --nm-bg:#050816; --nm-surface:#0b1120; --nm-text:#ffffff; --nm-muted:#7c8493;
+  --nm-primary:#6366f1; --nm-accent:#875ce9; --nm-border:#23263a; --nm-border-strong:#2f3350;
+  --nm-glass:rgba(255,255,255,.04); --nm-err:#e5857a; --nm-ok:#5fc79a; --nm-warm:#e0b35a;
+  --shadow:0 8px 24px rgba(0,0,0,.45);
+  --font:"Outfit",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--nm-bg);color:var(--nm-text);font:15px/1.5 var(--font);padding-bottom:64px;
+  background-image:radial-gradient(60rem 30rem at 12% -10%,rgba(99,102,241,.13),transparent 60%);background-attachment:fixed}
+a{color:inherit}
+.wrap{max-width:76rem;margin:0 auto;padding:0 16px}
+.hidden{display:none!important}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* header */
+.top{position:sticky;top:0;z-index:20;backdrop-filter:blur(10px);background:rgba(5,8,22,.85);border-bottom:1px solid var(--nm-border)}
+.top .wrap{display:flex;align-items:center;gap:10px;padding-block:12px;flex-wrap:wrap}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:700}
+.logo img{width:36px;height:36px;object-fit:contain}
+.logo small{font-weight:500;color:var(--nm-muted);font-size:14px}
+.spacer{flex:1}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:9999px;padding:9px 15px;
+  font:600 14px var(--font);cursor:pointer;border:1px solid transparent;white-space:nowrap;text-decoration:none;
+  transition:background-color .15s,border-color .15s}
+.btn-primary{background:rgba(99,102,241,.9);border-color:rgba(99,102,241,.5);color:#fff}
+.btn-primary:hover{background:var(--nm-primary)}
+.btn-ghost{background:rgba(11,17,32,.88);border-color:var(--nm-border-strong);color:var(--nm-text)}
+.btn-ghost:hover{border-color:rgba(99,102,241,.55)}
+.btn-danger{background:transparent;border-color:rgba(229,133,122,.5);color:var(--nm-err)}
+.btn-danger:hover{background:rgba(229,133,122,.1)}
+.btn:focus-visible,input:focus-visible,select:focus-visible,.row:focus-visible,.tab:focus-visible{outline:2px solid var(--nm-accent);outline-offset:2px}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+
+/* inputs */
+input[type=text],input[type=password],input[type=search],select{font:15px var(--font);color:var(--nm-text);
+  background:rgba(3,5,14,.75);border:1px solid var(--nm-border-strong);border-radius:12px;padding:10px 12px;min-width:0}
+select{padding-right:30px}
+input:focus,select:focus{outline:none;border-color:var(--nm-primary);box-shadow:0 0 0 3px rgba(99,102,241,.18)}
+.lab{display:block;font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--nm-muted);margin-bottom:6px}
+
+/* login */
+.login{max-width:24rem;margin:12vh auto 0;padding:28px;border:1px solid var(--nm-border);border-radius:24px;
+  background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.02));box-shadow:var(--shadow)}
+.login h1{font-size:26px;font-weight:900;letter-spacing:-.02em;margin:0 0 4px}
+.login p{color:var(--nm-muted);margin:0 0 20px}
+.login input{width:100%;margin-bottom:14px}
+.login .btn{width:100%;padding:12px}
+.msg{min-height:1.4em;margin-top:12px;font-size:14px;color:var(--nm-err)}
+
+/* stats */
+h1.page{font-size:clamp(24px,4vw,34px);font-weight:900;letter-spacing:-.02em;margin:28px 0 4px}
+.sub{color:var(--nm-muted);margin:0 0 18px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
+.stat{border:1px solid var(--nm-border);border-radius:18px;padding:14px 16px;background:var(--nm-glass)}
+.stat b{display:block;font-size:28px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.stat span{font-size:13px;color:var(--nm-muted)}
+
+/* tabs + toolbar */
+.tabs{display:flex;gap:6px;border-bottom:1px solid var(--nm-border);margin-bottom:16px}
+.tab{background:none;border:0;border-bottom:2px solid transparent;color:var(--nm-muted);font:600 15px var(--font);
+  padding:10px 12px;cursor:pointer;margin-bottom:-1px}
+.tab[aria-selected=true]{color:var(--nm-text);border-bottom-color:var(--nm-primary)}
+.tools{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.tools input[type=search]{flex:1 1 220px}
+.count{color:var(--nm-muted);font-size:14px;margin-left:auto}
+
+/* list */
+.list{border:1px solid var(--nm-border);border-radius:18px;overflow:hidden;background:rgba(11,17,32,.5)}
+.row{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1.6fr) minmax(0,1.1fr) minmax(0,1.3fr) 7.5rem;gap:14px;
+  align-items:center;padding:12px 16px;border-top:1px solid var(--nm-border);cursor:pointer}
+.row:first-child{border-top:0}
+.row:hover{background:rgba(99,102,241,.07)}
+.row.head{cursor:default;background:rgba(255,255,255,.03);font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--nm-muted)}
+.row.head:hover{background:rgba(255,255,255,.03)}
+.cell{min-width:0}
+.cell .main{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cell .minor{color:var(--nm-muted);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.empty{padding:40px 16px;text-align:center;color:var(--nm-muted)}
+.pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-radius:6px;padding:2px 7px;border:1px solid}
+.pill.complete{color:var(--nm-ok);border-color:rgba(95,199,154,.45)}
+.pill.draft{color:var(--nm-muted);border-color:var(--nm-border-strong)}
+.pill.hot{color:var(--nm-err);border-color:rgba(229,133,122,.45)}
+.pill.warm{color:var(--nm-warm);border-color:rgba(224,179,90,.45)}
+.pill.cold{color:#8fb3e8;border-color:rgba(143,179,232,.45)}
+.pill.want{color:#b9a2f5;border-color:rgba(135,92,233,.5)}
+.pills{display:flex;gap:6px;flex-wrap:wrap}
+@media (max-width:760px){
+  .row.head{display:none}
+  .row{grid-template-columns:1fr auto;gap:4px 12px}
+  .row .c-contact,.row .c-visitors{grid-column:1/-1}
+  .row .c-next{grid-column:1}
+  .row .c-date{grid-column:2;grid-row:1;text-align:right}
+}
+
+/* summary */
+.qsum{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr));gap:14px}
+.qcard{border:1px solid var(--nm-border);border-radius:18px;padding:16px;background:var(--nm-glass)}
+.qcard h3{margin:0 0 2px;font-size:15px;font-weight:700}
+.qcard .n{color:var(--nm-muted);font-size:13px;margin:0 0 12px}
+.bar{display:grid;grid-template-columns:minmax(0,1fr) 3.2rem;gap:4px 10px;align-items:center;margin-bottom:8px;font-size:14px}
+.bar .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar .v{text-align:right;color:var(--nm-muted);font-variant-numeric:tabular-nums}
+.bar .track{grid-column:1/-1;height:6px;border-radius:9999px;background:rgba(255,255,255,.07);overflow:hidden}
+.bar .track i{display:block;height:100%;border-radius:9999px;background:linear-gradient(90deg,var(--nm-accent),var(--nm-primary))}
+
+/* detail panel */
+dialog{border:1px solid var(--nm-border-strong);border-radius:24px;background:var(--nm-surface);color:var(--nm-text);
+  padding:0;width:min(44rem,calc(100vw - 32px));max-height:calc(100vh - 48px);box-shadow:var(--shadow)}
+dialog::backdrop{background:rgba(3,5,14,.7);backdrop-filter:blur(3px)}
+.dhead{position:sticky;top:0;background:var(--nm-surface);padding:20px 22px 14px;border-bottom:1px solid var(--nm-border);display:flex;gap:12px;align-items:flex-start}
+.dhead h2{margin:0;font-size:22px;font-weight:800;letter-spacing:-.01em;line-height:1.2}
+.dhead p{margin:4px 0 0;color:var(--nm-muted);font-size:14px}
+.dbody{padding:6px 22px 22px}
+.sect{font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--nm-primary);margin:20px 0 8px}
+.kv{display:grid;grid-template-columns:minmax(8rem,14rem) minmax(0,1fr);gap:10px 16px;font-size:15px}
+.kv dt{color:var(--nm-muted)}
+.kv dd{margin:0;overflow-wrap:anywhere}
+.kv dd.none{color:rgba(124,132,147,.6)}
+.kv ul{margin:0;padding-left:18px}
+.dfoot{display:flex;gap:10px;flex-wrap:wrap;padding:16px 22px 22px;border-top:1px solid var(--nm-border)}
+@media (max-width:560px){.kv{grid-template-columns:1fr;gap:2px}.kv dd{margin-bottom:10px}}
+
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--nm-surface);border:1px solid var(--nm-border-strong);
+  border-radius:9999px;padding:10px 18px;font-size:14px;box-shadow:var(--shadow);z-index:50}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<header class="top"><div class="wrap">
+  <a class="logo" href="./"><img src="../NavMe_logo.png" alt="" width="36" height="36"><span>NavMe <small>Inquiry admin</small></span></a>
+  <div class="spacer"></div>
+  <div id="topActions" class="hidden" style="display:flex;gap:8px;flex-wrap:wrap">
+    <button class="btn btn-ghost" id="refreshBtn" type="button">Refresh</button>
+    <button class="btn btn-ghost" id="csvBtn" type="button">Export CSV</button>
+    <button class="btn btn-ghost" id="pwBtn" type="button">Change password</button>
+    <button class="btn btn-ghost" id="logoutBtn" type="button">Log out</button>
+  </div>
+</div></header>
+
+<!-- login -->
+<main class="wrap" id="loginView">
+  <form class="login" id="loginForm">
+    <h1>Inquiry admin</h1>
+    <p>See who has filled in the museum inquiry form.</p>
+    <label class="lab" for="pw">Admin password</label>
+    <input type="password" id="pw" autocomplete="current-password" required>
+    <button class="btn btn-primary" type="submit" id="loginBtn">Log in</button>
+    <div class="msg" id="loginMsg" role="alert"></div>
+  </form>
+</main>
+
+<!-- app -->
+<main class="wrap hidden" id="appView">
+  <h1 class="page">Museum inquiries</h1>
+  <p class="sub" id="lastLoaded"></p>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tabList" aria-selected="true" aria-controls="listView" type="button">Entries</button>
+    <button class="tab" role="tab" id="tabSum" aria-selected="false" aria-controls="sumView" type="button">Answer summary</button>
+  </div>
+
+  <div class="tools">
+    <label class="sr-only" for="q">Search</label>
+    <input type="search" id="q" placeholder="Search museum, name, email, notes…">
+    <label class="sr-only" for="fStatus">Status</label>
+    <select id="fStatus">
+      <option value="complete">Submitted</option>
+      <option value="draft">Drafts (not submitted)</option>
+      <option value="">All</option>
+    </select>
+    <label class="sr-only" for="fNext">Next step</label>
+    <select id="fNext"><option value="">Any next step</option></select>
+    <label class="sr-only" for="fWarmth">Warmth</label>
+    <select id="fWarmth"><option value="">Any warmth</option></select>
+    <span class="count" id="count"></span>
+  </div>
+
+  <section id="listView" role="tabpanel" aria-labelledby="tabList">
+    <div class="list" id="list"></div>
+  </section>
+  <section id="sumView" role="tabpanel" aria-labelledby="tabSum" class="hidden">
+    <div class="qsum" id="sum"></div>
+  </section>
+</main>
+
+<!-- entry detail -->
+<dialog id="detail" aria-labelledby="dTitle">
+  <div class="dhead">
+    <div style="flex:1;min-width:0"><h2 id="dTitle"></h2><p id="dSub"></p></div>
+    <button class="btn btn-ghost" type="button" id="dClose" aria-label="Close">Close</button>
+  </div>
+  <div class="dbody" id="dBody"></div>
+  <div class="dfoot">
+    <a class="btn btn-primary" id="dMail" href="#">Email them</a>
+    <button class="btn btn-ghost" type="button" id="dCopy">Copy details</button>
+    <div class="spacer"></div>
+    <button class="btn btn-danger" type="button" id="dDelete">Delete entry</button>
+  </div>
+</dialog>
+
+<!-- change password -->
+<dialog id="pwDlg" aria-labelledby="pwTitle">
+  <form id="pwForm" method="dialog">
+    <div class="dhead"><div style="flex:1"><h2 id="pwTitle">Change admin password</h2><p>At least 10 characters.</p></div></div>
+    <div class="dbody">
+      <label class="lab" for="pwNew" style="margin-top:16px">New password</label>
+      <input type="password" id="pwNew" autocomplete="new-password" minlength="10" required style="width:100%">
+      <label class="lab" for="pwNew2" style="margin-top:14px">Repeat new password</label>
+      <input type="password" id="pwNew2" autocomplete="new-password" minlength="10" required style="width:100%">
+      <div class="msg" id="pwMsg" role="alert"></div>
+    </div>
+    <div class="dfoot">
+      <button class="btn btn-primary" type="submit" id="pwSave">Save password</button>
+      <button class="btn btn-ghost" type="button" id="pwCancel">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast hidden" id="toast" role="status"></div>
+
+<script>
+const API = "https://znfwcohrpkiccibqcfpn.supabase.co/rest/v1/rpc/";
+const KEY = "sb_publishable_gigKfr2wNhBmYL3kLN6OoQ_tfoB4CLv";
+
+/* question text, in form order, with the column each answer lands in */
+const QS = [
+  {col:"site",             t:"What kind of museum is it?", detail:"site_detail"},
+  {col:"org_type",         t:"How is the organization run?"},
+  {col:"visitors",         t:"Roughly how many visitors a year?"},
+  {col:"pain",             t:"What do visitors struggle with most?", multi:true},
+  {col:"wayfinding_today", t:"How do you help people find their way today?", multi:true},
+  {col:"biggest_value",    t:"Which would make the biggest difference?"},
+  {col:"timing",           t:"When would you want something live?", detail:"timing_detail"},
+  {col:"next_step",        t:"What would be the best next step?"},
+  {col:"more",             t:"Tell us anything about your museum.", text:true}
+];
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const SS = {get(k){try{return sessionStorage.getItem(k)}catch(e){return null}},
+            set(k,v){try{v==null?sessionStorage.removeItem(k):sessionStorage.setItem(k,v)}catch(e){}}};
+const fmt = d => d ? new Date(d).toLocaleString(undefined,{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "";
+const fmtDay = d => d ? new Date(d).toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"}) : "";
+const warmthKey = w => w ? w.split(":")[0].toLowerCase() : "";
+
+let password = SS.get("inquiry-admin-pw");
+let rows = [];
+let current = null;
+
+async function rpc(fn, body){
+  const res = await fetch(API + fn, {method:"POST",
+    headers:{"Content-Type":"application/json", apikey:KEY}, body:JSON.stringify(body)});
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if(!res.ok){ const e = new Error((data && data.message) || ("HTTP " + res.status)); e.status = res.status; throw e; }
+  return data;
+}
+
+function toast(msg){
+  const t = $("toast"); t.textContent = msg; t.classList.remove("hidden");
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.add("hidden"), 2600);
+}
+
+/* ── login ─────────────────────────────────────────────── */
+function showApp(on){
+  $("loginView").classList.toggle("hidden", on);
+  $("appView").classList.toggle("hidden", !on);
+  $("topActions").classList.toggle("hidden", !on);
+}
+$("loginForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  $("loginBtn").disabled = true; $("loginMsg").textContent = "";
+  try{
+    await rpc("inquiry_admin_login", {admin_password: $("pw").value});
+    password = $("pw").value; SS.set("inquiry-admin-pw", password); $("pw").value = "";
+    showApp(true); await load();
+  }catch(err){
+    $("loginMsg").textContent = err.status === 403 ? "That password isn't right." : "Couldn't reach the server. Check your connection and try again.";
+  }finally{ $("loginBtn").disabled = false; }
+});
+$("logoutBtn").onclick = () => { password = null; SS.set("inquiry-admin-pw", null); rows = []; showApp(false); $("pw").focus(); };
+
+/* ── data ──────────────────────────────────────────────── */
+async function load(){
+  $("refreshBtn").disabled = true;
+  try{
+    rows = await rpc("inquiry_admin_list", {admin_password: password}) || [];
+    $("lastLoaded").textContent = "Updated " + fmt(new Date());
+    fillFilters(); render();
+  }catch(err){
+    if(err.status === 403){ $("logoutBtn").onclick(); $("loginMsg").textContent = "Please log in again."; }
+    else toast("Couldn't load entries: " + err.message);
+  }finally{ $("refreshBtn").disabled = false; }
+}
+$("refreshBtn").onclick = load;
+
+function fillFilters(){
+  const opts = (sel, vals, label) => {
+    const keep = sel.value;
+    sel.innerHTML = `<option value="">${label}</option>` + [...new Set(vals.filter(Boolean))].sort().map(v => `<option>${esc(v)}</option>`).join("");
+    sel.value = [...sel.options].some(o => o.value === keep) ? keep : "";
+  };
+  opts($("fNext"), rows.map(r => r.next_step), "Any next step");
+  opts($("fWarmth"), rows.map(r => r.staff_warmth), "Any warmth");
+}
+
+function filtered(){
+  const q = $("q").value.trim().toLowerCase();
+  const st = $("fStatus").value, nx = $("fNext").value, wm = $("fWarmth").value;
+  return rows.filter(r =>
+    (!st || r.status === st) && (!nx || r.next_step === nx) && (!wm || r.staff_warmth === wm) &&
+    (!q || [r.museum, r.contact_name, r.contact_role, r.email, r.more, r.staff_notes, r.staff_spoke_with, r.event, r.device]
+            .some(v => v && v.toLowerCase().includes(q))));
+}
+
+/* ── render ────────────────────────────────────────────── */
+function render(){
+  const done = rows.filter(r => r.status === "complete");
+  const stat = (n, l) => `<div class="stat"><b>${n}</b><span>${l}</span></div>`;
+  $("stats").innerHTML =
+    stat(done.length, "Submitted") +
+    stat(rows.length - done.length, "Drafts, not submitted") +
+    stat(done.filter(r => r.consent_contact).length, "Want a readout") +
+    stat(done.filter(r => r.consent_findings).length, "Want the findings") +
+    stat(done.filter(r => r.next_step === "A short online demo" || r.next_step === "A call about our museum").length, "Asked for a demo or call");
+
+  const list = filtered();
+  $("count").textContent = `${list.length} of ${rows.length}`;
+  $("list").innerHTML = !list.length
+    ? `<div class="empty">${rows.length ? "No entries match these filters." : "No one has filled in the form yet."}</div>`
+    : `<div class="row head"><div>Museum</div><div>Contact</div><div>Visitors</div><div>Next step</div><div>Date</div></div>` +
+      list.map(r => {
+        const w = warmthKey(r.staff_warmth);
+        return `<div class="row" tabindex="0" role="button" data-id="${esc(r.id)}">
+          <div class="cell"><div class="main">${esc(r.museum || "No museum given")}</div>
+            <div class="pills" style="margin-top:4px"><span class="pill ${r.status}">${r.status === "complete" ? "Submitted" : "Draft"}</span>
+            ${w ? `<span class="pill ${w}">${esc(w)}</span>` : ""}${r.consent_contact ? `<span class="pill want">Wants readout</span>` : ""}</div></div>
+          <div class="cell c-contact"><div class="main">${esc(r.contact_name || "—")}${r.contact_role ? ` <span class="minor">· ${esc(r.contact_role)}</span>` : ""}</div>
+            <div class="minor">${esc(r.email || "No email")}</div></div>
+          <div class="cell c-visitors"><div class="minor">${esc(r.visitors || "—")}</div></div>
+          <div class="cell c-next"><div class="minor">${esc(r.next_step || "—")}</div></div>
+          <div class="cell c-date"><div class="minor">${esc(fmtDay(r.submitted_at || r.updated_at))}</div></div>
+        </div>`;
+      }).join("");
+  renderSummary(list);
+}
+
+function renderSummary(list){
+  const n = list.length;
+  $("sum").innerHTML = QS.filter(q => !q.text).map(q => {
+    const counts = {};
+    let answered = 0;
+    list.forEach(r => {
+      const v = r[q.col]; const vals = q.multi ? (v || []) : (v ? [v] : []);
+      if(vals.length) answered++;
+      vals.forEach(x => counts[x] = (counts[x] || 0) + 1);
+    });
+    const items = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    const max = Math.max(1, ...items.map(i => i[1]));
+    return `<div class="qcard"><h3>${esc(q.t)}</h3>
+      <p class="n">${answered} of ${n} answered${q.multi ? " · could pick several" : ""}</p>
+      ${items.length ? items.map(([k, c]) => `<div class="bar"><span class="t" title="${esc(k)}">${esc(k)}</span>
+        <span class="v">${c}</span><span class="track"><i style="width:${Math.round(c / max * 100)}%"></i></span></div>`).join("")
+        : `<p class="n">No answers yet.</p>`}
+    </div>`;
+  }).join("") || `<div class="empty">Nothing to summarise.</div>`;
+}
+
+["q","fStatus","fNext","fWarmth"].forEach(id => $(id).addEventListener("input", render));
+
+/* tabs */
+function tab(which){
+  const list = which === "list";
+  $("tabList").setAttribute("aria-selected", list); $("tabSum").setAttribute("aria-selected", !list);
+  $("listView").classList.toggle("hidden", !list); $("sumView").classList.toggle("hidden", list);
+}
+$("tabList").onclick = () => tab("list");
+$("tabSum").onclick = () => tab("sum");
+
+/* ── detail ────────────────────────────────────────────── */
+function openRow(id){
+  const r = rows.find(x => x.id === id); if(!r) return;
+  current = r;
+  $("dTitle").textContent = r.museum || "No museum given";
+  $("dSub").textContent = (r.status === "complete" ? "Submitted " + fmt(r.submitted_at) : "Draft, last changed " + fmt(r.updated_at))
+    + (r.device ? " · " + r.device : "") + (r.event ? " · " + r.event : "");
+
+  const dd = v => v == null || v === "" || (Array.isArray(v) && !v.length)
+    ? `<dd class="none">Not answered</dd>`
+    : Array.isArray(v) ? `<dd><ul>${v.map(x => `<li>${esc(x)}</li>`).join("")}</ul></dd>`
+    : `<dd>${esc(v).replace(/\n/g, "<br>")}</dd>`;
+  const kv = pairs => `<dl class="kv">${pairs.map(([k, v]) => `<dt>${esc(k)}</dt>${dd(v)}`).join("")}</dl>`;
+
+  let html = `<div class="sect">Contact</div>` + kv([
+    ["Museum", r.museum], ["Name", r.contact_name], ["Role", r.contact_role], ["Email", r.email],
+    ["Send the findings", r.consent_findings ? "Yes" : "No"], ["Wants a readout", r.consent_contact ? "Yes" : "No"]]);
+  html += `<div class="sect">Answers</div>` + kv(QS.flatMap((q, i) => {
+    const out = [[`${i + 1}. ${q.t}`, r[q.col]]];
+    if(q.detail && r[q.detail]) out.push([q.col === "site" ? "Type of museum (other)" : "Opening or milestone date", r[q.detail]]);
+    return out;
+  }));
+  if(r.staff_spoke_with || r.staff_warmth || r.staff_notes)
+    html += `<div class="sect">Staff notes</div>` + kv([["Spoke with", r.staff_spoke_with], ["Warmth", r.staff_warmth], ["Notes", r.staff_notes]]);
+  html += `<div class="sect">Record</div>` + kv([["Started", fmt(r.started_at)], ["Last changed", fmt(r.updated_at)],
+    ["Submitted", fmt(r.submitted_at)], ["Device", r.device], ["Event", r.event], ["ID", r.id]]);
+  $("dBody").innerHTML = html;
+
+  $("dMail").classList.toggle("hidden", !r.email);
+  if(r.email) $("dMail").href = "mailto:" + encodeURIComponent(r.email) + "?subject=" + encodeURIComponent("NavMe: " + (r.museum || "your museum"));
+  $("detail").showModal();
+}
+$("list").addEventListener("click", e => { const row = e.target.closest(".row[data-id]"); if(row) openRow(row.dataset.id); });
+$("list").addEventListener("keydown", e => {
+  const row = e.target.closest(".row[data-id]");
+  if(row && (e.key === "Enter" || e.key === " ")){ e.preventDefault(); openRow(row.dataset.id); }
+});
+$("dClose").onclick = () => $("detail").close();
+$("detail").addEventListener("click", e => { if(e.target === $("detail")) $("detail").close(); });
+
+function plain(r){
+  const lines = [`Museum: ${r.museum || ""}`, `Name: ${r.contact_name || ""}`, `Role: ${r.contact_role || ""}`, `Email: ${r.email || ""}`, ""];
+  QS.forEach((q, i) => {
+    const v = r[q.col];
+    lines.push(`${i + 1}. ${q.t}`, "   " + (Array.isArray(v) ? v.join("; ") : (v || "—")) + (q.detail && r[q.detail] ? ` (${r[q.detail]})` : ""));
+  });
+  if(r.staff_notes || r.staff_warmth) lines.push("", `Warmth: ${r.staff_warmth || ""}`, `Notes: ${r.staff_notes || ""}`);
+  return lines.join("\n");
+}
+$("dCopy").onclick = async () => {
+  try{ await navigator.clipboard.writeText(plain(current)); toast("Copied"); }catch(e){ toast("Couldn't copy"); }
+};
+$("dDelete").onclick = async () => {
+  if(!current || !confirm(`Delete the entry for "${current.museum || "no museum given"}"? This can't be undone.`)) return;
+  try{
+    await rpc("inquiry_admin_delete", {admin_password: password, enquiry_id: current.id});
+    rows = rows.filter(r => r.id !== current.id);
+    $("detail").close(); fillFilters(); render(); toast("Entry deleted");
+  }catch(err){ toast("Couldn't delete: " + err.message); }
+};
+
+/* ── CSV of what is currently shown ────────────────────── */
+$("csvBtn").onclick = () => {
+  const cols = [["Status","status"],["Submitted","submitted_at"],["Last changed","updated_at"],["Museum","museum"],["Name","contact_name"],
+    ["Role","contact_role"],["Email","email"],["Send findings","consent_findings"],["Wants readout","consent_contact"],
+    ...QS.flatMap((q, i) => [[`Q${i + 1} ${q.t}`, q.col], ...(q.detail ? [[`Q${i + 1} detail`, q.detail]] : [])]),
+    ["Spoke with","staff_spoke_with"],["Warmth","staff_warmth"],["Staff notes","staff_notes"],["Device","device"],["Event","event"],["ID","id"]];
+  const cell = v => { v = Array.isArray(v) ? v.join("; ") : typeof v === "boolean" ? (v ? "Yes" : "No") : (v ?? "");
+    return /[",\n\r]/.test(v) ? `"${String(v).replace(/"/g, '""')}"` : String(v); };
+  const csv = [cols.map(c => cell(c[0])).join(","), ...filtered().map(r => cols.map(c => cell(r[c[1]])).join(","))].join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["﻿" + csv], {type:"text/csv;charset=utf-8"}));
+  a.download = `museum-inquiries-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+
+/* ── change password ───────────────────────────────────── */
+$("pwBtn").onclick = () => { $("pwForm").reset(); $("pwMsg").textContent = ""; $("pwDlg").showModal(); };
+$("pwCancel").onclick = () => $("pwDlg").close();
+$("pwForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const a = $("pwNew").value, b = $("pwNew2").value;
+  if(a !== b){ $("pwMsg").textContent = "The two passwords don't match."; return; }
+  $("pwSave").disabled = true;
+  try{
+    await rpc("inquiry_admin_set_password", {admin_password: password, new_password: a});
+    password = a; SS.set("inquiry-admin-pw", a);
+    $("pwDlg").close(); toast("Password changed");
+  }catch(err){ $("pwMsg").textContent = err.message; }
+  finally{ $("pwSave").disabled = false; }
+});
+
+/* stay logged in for this browser tab */
+if(password){ showApp(true); load(); } else { $("pw").focus(); }
+</script>
+</body>
+</html>
